@@ -21,14 +21,22 @@ import '../models/sensor_data.dart';
 /// ## UUIDs
 /// - Service UUID: `4fafc201-1fb5-459e-8fcc-c5c9c331914b`
 /// - Data Characteristic UUID: `beb5483e-36e1-4688-b7f5-ea07361b26a8`
+/// - Command Characteristic UUID: `beb5483e-36e1-4688-b7f5-ea07361b26a9`
 class BleService extends ChangeNotifier {
   // ── MindTrack GATT UUIDs ───────────────────────────────────────────────────
   static const String serviceUuid = '4fafc201-1fb5-459e-8fcc-c5c9c331914b';
   static const String dataCharUuid = 'beb5483e-36e1-4688-b7f5-ea07361b26a8';
+  static const String cmdCharUuid = 'beb5483e-36e1-4688-b7f5-ea07361b26a9';
 
   // ── Connection state ───────────────────────────────────────────────────
   BluetoothDevice? _connectedDevice;
   BluetoothDevice? get connectedDevice => _connectedDevice;
+
+  BluetoothCharacteristic? _cmdChar;
+  bool get canSendCommand => _cmdChar != null;
+
+  DateTime? _lastPongTime;
+  DateTime? get lastPongTime => _lastPongTime;
 
   bool _isScanning = false;
   bool get isScanning => _isScanning;
@@ -146,12 +154,15 @@ class BleService extends ChangeNotifier {
         return false;
       }
 
-      // Find the data characteristic
+      // Find data and command characteristics
       BluetoothCharacteristic? dataChr;
+      _cmdChar = null;
       for (final c in targetService.characteristics) {
-        if (c.uuid.toString().toLowerCase() == dataCharUuid) {
+        final uuidStr = c.uuid.toString().toLowerCase();
+        if (uuidStr == dataCharUuid) {
           dataChr = c;
-          break;
+        } else if (uuidStr == cmdCharUuid) {
+          _cmdChar = c;
         }
       }
 
@@ -176,13 +187,33 @@ class BleService extends ChangeNotifier {
       _jsonBuffer = '';
       notifyListeners();
 
-      debugPrint('[BLE] Connected & subscribed to ${device.platformName}');
+      debugPrint('[BLE] Connected & subscribed to ${device.platformName} (Command available: ${_cmdChar != null})');
       return true;
     } catch (e) {
       debugPrint('[BLE] Connection error: $e');
       return false;
     }
   }
+
+  /// Send a string command to the wearable (via CHAR_CMD_UUID)
+  Future<bool> sendCommand(String command) async {
+    if (_cmdChar == null) {
+      debugPrint('[BLE] Command characteristic not ready.');
+      return false;
+    }
+    try {
+      final bytes = utf8.encode(command);
+      await _cmdChar!.write(bytes, withoutResponse: false);
+      debugPrint('[BLE] Sent command to device: $command');
+      return true;
+    } catch (e) {
+      debugPrint('[BLE] Error sending command: $e');
+      return false;
+    }
+  }
+
+  /// Ping the wearable to test bidirectional link (device responds with {"pong":1})
+  Future<bool> sendPing() => sendCommand('ping');
 
   /// Disconnect from the currently connected device.
   Future<void> disconnect() async {
@@ -192,6 +223,7 @@ class BleService extends ChangeNotifier {
       await _connectedDevice?.disconnect();
     } catch (_) {}
     _connectedDevice = null;
+    _cmdChar = null;
     _jsonBuffer = '';
     notifyListeners();
   }
@@ -201,8 +233,8 @@ class BleService extends ChangeNotifier {
   // ═══════════════════════════════════════════════════════════════════════
 
   /// Called when raw bytes arrive via BLE Notify.
-  /// MindTrack device sends compact JSON: {"hr":95,"ibi":630,"hrv":28,"st":62,"t":35.8,
-  ///                             "g":72,"ir":123456,"ax":0.12,"ay":0.05,"az":0.98,"ts":171932123}
+  /// MindTrack device sends compact JSON:
+  /// {"worn":1,"hr":75,"ibi":800,"hrv":42,"st":34,"t":36.5,"g":30,"ir":120500,"ss":31,"ts":128}
   ///
   /// BLE MTU can be as small as 20 bytes, so the JSON may arrive split
   /// across multiple packets. We buffer until we receive a complete JSON object.
@@ -211,39 +243,55 @@ class BleService extends ChangeNotifier {
       final chunk = utf8.decode(rawBytes, allowMalformed: true);
       _jsonBuffer += chunk;
 
-      // Try to find a complete JSON object in the buffer
-      // Look for matching { ... }
-      final openIdx = _jsonBuffer.indexOf('{');
-      if (openIdx == -1) {
-        // No opening brace yet, clear garbage
-        _jsonBuffer = '';
-        return;
+      // Process all complete JSON objects found in buffer
+      while (true) {
+        final openIdx = _jsonBuffer.indexOf('{');
+        if (openIdx == -1) {
+          // No opening brace yet, clear garbage
+          _jsonBuffer = '';
+          return;
+        }
+
+        final closeIdx = _jsonBuffer.indexOf('}', openIdx);
+        if (closeIdx == -1) {
+          // Incomplete JSON, wait for more chunks
+          return;
+        }
+
+        // Extract the complete JSON object
+        final jsonStr = _jsonBuffer.substring(openIdx, closeIdx + 1);
+        _jsonBuffer = _jsonBuffer.substring(closeIdx + 1);
+
+        final map = jsonDecode(jsonStr) as Map<String, dynamic>;
+
+        // 1. Check for ping-pong response
+        if (map.containsKey('pong')) {
+          debugPrint('[BLE] Pong received from wearable!');
+          _lastPongTime = DateTime.now();
+          notifyListeners();
+          continue;
+        }
+
+        // 2. Check for TEST_BLE mode payload
+        if (map.containsKey('test')) {
+          debugPrint('[BLE] Test BLE packet received: n=${map['n']}, ts=${map['ts']}');
+          continue;
+        }
+
+        // 3. Normal sensor payload
+        final data = SensorData.fromBleJson(map);
+
+        _lastReading = data;
+        _dataController.add(data);
+
+        // Keep history (max 500 entries)
+        _history.add(data);
+        if (_history.length > 500) {
+          _history.removeAt(0);
+        }
+
+        notifyListeners();
       }
-
-      final closeIdx = _jsonBuffer.indexOf('}', openIdx);
-      if (closeIdx == -1) {
-        // Incomplete JSON, wait for more data
-        return;
-      }
-
-      // Extract the first complete JSON object
-      final jsonStr = _jsonBuffer.substring(openIdx, closeIdx + 1);
-      _jsonBuffer = _jsonBuffer.substring(closeIdx + 1);
-
-      // Parse JSON → SensorData
-      final map = jsonDecode(jsonStr) as Map<String, dynamic>;
-      final data = SensorData.fromBleJson(map);
-
-      _lastReading = data;
-      _dataController.add(data);
-
-      // Keep history (max 500 entries)
-      _history.add(data);
-      if (_history.length > 500) {
-        _history.removeAt(0);
-      }
-
-      notifyListeners();
     } catch (e) {
       debugPrint('[BLE] Parse error: $e');
     }
@@ -255,6 +303,7 @@ class BleService extends ChangeNotifier {
     _notifySub?.cancel();
     _connectionSub?.cancel();
     _connectedDevice = null;
+    _cmdChar = null;
     _jsonBuffer = '';
     notifyListeners();
   }

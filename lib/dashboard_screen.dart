@@ -232,6 +232,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     if (!_ble.isConnected)
                       _MockDataBanner(onConnect: _openScanScreen),
 
+                    // Unworn banner (when device is connected but taken off wrist)
+                    if (_ble.isConnected && !_current.isWorn)
+                      const _UnwornBanner(),
+
                     // Stress Insights Entry
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -298,8 +302,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           label: 'Detak Jantung',
                           value: _current.heartRate.toDouble(),
                           maxValue: 200,
-                          displayText: '${_current.heartRate}',
-                          unit: 'BPM',
+                          displayText: _current.heartRateDisplayText,
+                          unit: _current.isWorn && _current.heartRate > 0 ? 'BPM' : '',
                           sublabel: _current.heartRateLabel,
                           barColor: const Color(0xFFF44336),
                         ),
@@ -317,10 +321,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         _HealthCard(
                           icon: Icons.timeline_rounded,
                           label: 'HRV (Variabilitas)',
-                          value: _current.hrv.toDouble(),
+                          value: _current.hrv < 0 ? 0.0 : _current.hrv.toDouble(),
                           maxValue: 60,
-                          displayText: '${_current.hrv}',
-                          unit: 'ms',
+                          displayText: _current.hrvDisplayText,
+                          unit: _current.hrv < 0 ? '' : 'ms',
                           sublabel: _current.hrvLabel,
                           barColor: const Color(0xFF7C4DFF),
                         ),
@@ -862,3 +866,48 @@ class _MockDataBanner extends StatelessWidget {
     );
   }
 }
+
+/// Alert banner shown when MindTrack wearable is off wrist / unworn.
+class _UnwornBanner extends StatelessWidget {
+  const _UnwornBanner();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      decoration: BoxDecoration(
+        color: const Color(0xFFEF4444).withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color(0xFFEF4444).withValues(alpha: 0.3)),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.warning_amber_rounded, size: 22, color: Color(0xFFEF4444)),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Perangkat Dilepas (Off-Wrist)',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFFEF4444),
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  'Pasang kembali jam ke pergelangan tangan agar sensor membaca detak jantung dan stres.',
+                  style: TextStyle(fontSize: 11, color: Colors.grey.shade700, height: 1.3),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+

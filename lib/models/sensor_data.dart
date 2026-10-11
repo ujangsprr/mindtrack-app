@@ -1,19 +1,23 @@
 /// Holds a single snapshot of sensor readings from the MindTrack wearable device.
 class SensorData {
-  final int heartRate;    // BPM
-  final int ibi;          // ms  — Inter-Beat Interval
-  final int hrv;          // ms  — Heart Rate Variability SDNN
-  final double temperature; // °C
-  final int motionScore;  // 0–100 — computed from movement
-  final int stressIndex;  // 0–100 — raw st from device
-  final int gsrPercent;   // 0–100% — skin conductance
-  final int irRaw;        // raw IR
-  final double accelX;    
-  final double accelY;    
-  final double accelZ;    
+  final bool isWorn;        // true if device is on wrist (worn == 1)
+  final int heartRate;      // BPM (hr)
+  final int ibi;            // ms — Inter-Beat Interval (ibi)
+  final int hrv;            // ms — HRV RMSSD (hrv, -1 during calibration)
+  final double temperature; // °C (t)
+  final int motionScore;    // 0–100 — computed from movement or IMU
+  final int stressIndex;    // 0–100 — Fusion Index from device (st)
+  final int gsrPercent;     // 0–100% — skin conductance (g)
+  final int irRaw;          // raw IR intensity from MAX30102 (ir)
+  final int sensorStatus;   // bitmask health: bit0=HR, bit1=HRV, bit2=GSR, bit3=Temp, bit4=IMU (ss)
+  final int uptimeSeconds;  // device uptime in seconds (ts)
+  final double accelX;      // m/s² (ax)
+  final double accelY;      // m/s² (ay)
+  final double accelZ;      // m/s² (az)
   final DateTime timestamp;
 
   const SensorData({
+    this.isWorn = true,
     required this.heartRate,
     required this.ibi,
     required this.hrv,
@@ -22,16 +26,27 @@ class SensorData {
     required this.stressIndex,
     required this.gsrPercent,
     required this.irRaw,
+    this.sensorStatus = 0x1F,
+    this.uptimeSeconds = 0,
     required this.accelX,
     required this.accelY,
     required this.accelZ,
     required this.timestamp,
   });
 
+  // ── Sensor Health Status (Bitmask `ss` Decoding) ──────────────────────────
+  bool get isHeartRateValid => (sensorStatus & 0x01) != 0 && isWorn && heartRate > 0;
+  bool get isHrvValid => (sensorStatus & 0x02) != 0 && hrv >= 0;
+  bool get isGsrValid => (sensorStatus & 0x04) != 0;
+  bool get isTempValid => (sensorStatus & 0x08) != 0;
+  bool get isMotionValid => (sensorStatus & 0x10) != 0;
+  bool get allSensorsReady => sensorStatus == 0x1F;
+
   // ── Smart Processing (Age & BMI Aware) ───────────────────────────────────
 
   /// Calculates a more accurate stress index adjusted for age and BMI.
   int getAdjustedStress(int? age, double? height, double? weight) {
+    if (!isWorn) return 0;
     if (age == null) return stressIndex;
 
     double adjustmentFactor = 1.0;
@@ -61,6 +76,7 @@ class SensorData {
 
   /// Label based on age-adjusted stress index.
   String getStressLabel(int? age, double? height, double? weight) {
+    if (!isWorn) return 'Dilepas ⚠️';
     final idx = getAdjustedStress(age, height, weight);
     if (idx <= 30) return 'Santai 😊';
     if (idx <= 60) return 'Normal 😐';
@@ -69,6 +85,10 @@ class SensorData {
 
   /// High-granularity analysis based on multi-dimensional sensor data.
   String getStressAnalysis(int? age, double? height, double? weight) {
+    if (!isWorn) {
+      return "Perangkat Tidak Terpasang: Sensor inframerah tidak mendeteksi kontak dengan kulit. Pasang alat ke pergelangan tangan untuk melanjutkan pemantauan biometrik.";
+    }
+
     final idx = getAdjustedStress(age, height, weight);
     final isMoving = motionScore > 40;
 
@@ -80,7 +100,7 @@ class SensorData {
       if (gsrPercent > 70) {
         return "Reaksi Emosional Kuat: Aktivitas kelenjar keringat (GSR) meningkat drastis, menunjukkan respon 'fight or flight' terhadap pemicu eksternal.";
       }
-      if (hrv < 20) {
+      if (hrv >= 0 && hrv < 20) {
         return "Kelelahan Sistem Saraf: Variabilitas detak jantung Anda sangat rendah. Sistem saraf Anda kehilangan fleksibilitas untuk kembali tenang.";
       }
       if (temperature > 37.5) {
@@ -114,6 +134,10 @@ class SensorData {
 
   /// Highly specific recommendations based on the analysis above.
   String getRecommendation(int? age, double? height, double? weight) {
+    if (!isWorn) {
+      return "Pastikan jam tangan MindTrack terpasang dengan baik pada pergelangan tangan agar sensor dapat membaca denyut nadi, suhu, dan konduktansi kulit.";
+    }
+
     final idx = getAdjustedStress(age, height, weight);
     final isMoving = motionScore > 40;
 
@@ -125,7 +149,7 @@ class SensorData {
       if (gsrPercent > 70) {
         return "Basuh wajah atau lengan dengan air dingin. Suhu dingin akan memicu refleks penyelaman yang secara instan menenangkan sistem saraf simpatis Anda.";
       }
-      if (hrv < 20) {
+      if (hrv >= 0 && hrv < 20) {
         return "Anda butuh istirahat total. Matikan layar gawai, tutup mata selama 5 menit, dan biarkan sistem saraf Anda melakukan reboot tanpa stimulasi visual.";
       }
       return "Cari tempat yang tenang dengan udara segar. Lakukan peregangan leher dan bahu untuk melepas ketegangan otot yang menghambat aliran darah ke otak.";
@@ -151,21 +175,28 @@ class SensorData {
   // ── Basic Raw Labels ──────────────────────────────────────────────────────
 
   String get stressLabel {
+    if (!isWorn) return 'Dilepas ⚠️';
     if (stressIndex <= 30) return 'Santai 😊';
     if (stressIndex <= 60) return 'Normal 😐';
     return 'Tegang 😟';
   }
 
   String get stressLabelShort {
+    if (!isWorn) return 'Dilepas';
     if (stressIndex <= 30) return 'Santai';
     if (stressIndex <= 60) return 'Normal';
     return 'Tegang';
   }
 
   String get hrvLabel {
+    if (hrv < 0) return 'Menghitung...';
     if (hrv <= 10) return 'Rendah';
     if (hrv <= 30) return 'Normal';
     return 'Baik';
+  }
+
+  String get hrvDisplayText {
+    return hrv < 0 ? '--' : '$hrv';
   }
 
   String get gsrLabel {
@@ -182,10 +213,16 @@ class SensorData {
   }
 
   String get heartRateLabel {
+    if (!isWorn) return 'Dilepas';
     if (heartRate < 60) return 'Rendah';
     if (heartRate <= 100) return 'Normal';
     if (heartRate <= 140) return 'Sedikit Tinggi';
     return 'Tinggi';
+  }
+
+  String get heartRateDisplayText {
+    if (!isWorn || heartRate <= 0) return '--';
+    return '$heartRate';
   }
 
   String get temperatureLabel {
@@ -209,42 +246,71 @@ class SensorData {
   }
 
   factory SensorData.fromBleJson(Map<String, dynamic> json) {
+    // 1. Wear detection from 'worn' key, fallback to IR threshold > 50000
+    final wornVal = json['worn'];
+    final irVal = (json['ir'] as num?)?.toInt() ?? 0;
+    final bool isWorn = wornVal != null
+        ? (wornVal == 1 || wornVal == true)
+        : (irVal > 50000);
+
+    // 2. Sensor health bitmask: bit0=HR, bit1=HRV, bit2=GSR, bit3=Temp, bit4=IMU
+    final int sensorStatus = (json['ss'] as num?)?.toInt() ?? 0x1F;
+
+    // 3. System uptime seconds
+    final int uptime = (json['ts'] as num?)?.toInt() ?? 0;
+
+    // 4. HRV (-1 denotes calculating phase in Arduino firmware)
+    final int rawHrv = (json['hrv'] as num?)?.toInt() ?? -1;
+
+    // 5. Accelerometer readings
     final ax = (json['ax'] as num?)?.toDouble() ?? 0.0;
     final ay = (json['ay'] as num?)?.toDouble() ?? 0.0;
-    final az = (json['az'] as num?)?.toDouble() ?? 9.8;
-    
-    final mag = (ax*ax + ay*ay + az*az);
-    final motionScore = ((mag - 96).abs() * 0.5).clamp(0.0, 100.0).toInt();
+    final az = (json['az'] as num?)?.toDouble() ?? (json.containsKey('az') ? 0.0 : 9.8);
+
+    // 6. Motion score computation
+    final int motionScore;
+    if (json.containsKey('ax') || json.containsKey('ay') || json.containsKey('az')) {
+      final mag = _sqrt(ax * ax + ay * ay + az * az);
+      final netMotion = (mag - 9.81).abs();
+      motionScore = (netMotion * 12.0).clamp(0.0, 100.0).toInt();
+    } else {
+      motionScore = 0;
+    }
 
     return SensorData(
-      heartRate:   (json['hr']  as int?)  ?? 0,
-      ibi:         (json['ibi'] as int?)  ?? 0,
-      hrv:         (json['hrv'] as int?)  ?? 0,
-      temperature: (json['t']   as num?)?.toDouble() ?? 0.0,
-      motionScore: motionScore,
-      stressIndex: ((json['st'] as int?) ?? 0).clamp(0, 100),
-      gsrPercent:  ((json['g']  as int?) ?? 0).clamp(0, 100),
-      irRaw:       (json['ir']  as int?)  ?? 0,
-      accelX:      ax,
-      accelY:      ay,
-      accelZ:      az,
-      timestamp:   DateTime.now(),
+      isWorn:        isWorn,
+      heartRate:     (json['hr']  as num?)?.toInt() ?? 0,
+      ibi:           (json['ibi'] as num?)?.toInt() ?? 0,
+      hrv:           rawHrv,
+      temperature:   (json['t']   as num?)?.toDouble() ?? 0.0,
+      motionScore:   motionScore,
+      stressIndex:   ((json['st'] as num?)?.toInt() ?? 0).clamp(0, 100),
+      gsrPercent:    ((json['g']  as num?)?.toInt() ?? 0).clamp(0, 100),
+      irRaw:         irVal,
+      sensorStatus:  sensorStatus,
+      uptimeSeconds: uptime,
+      accelX:        ax,
+      accelY:        ay,
+      accelZ:        az,
+      timestamp:     DateTime.now(),
     );
   }
 
   Map<String, dynamic> toMap() {
     return {
-      'hr':  heartRate,
-      'ibi': ibi,
-      'hrv': hrv,
-      't':   temperature,
-      'st':  stressIndex,
-      'g':   gsrPercent,
-      'ir':  irRaw,
-      'ax':  accelX,
-      'ay':  accelY,
-      'az':  accelZ,
-      'ts':  timestamp.millisecondsSinceEpoch ~/ 1000,
+      'worn': isWorn ? 1 : 0,
+      'hr':   heartRate,
+      'ibi':  ibi,
+      'hrv':  hrv,
+      'st':   stressIndex,
+      't':    temperature,
+      'g':    gsrPercent,
+      'ir':   irRaw,
+      'ss':   sensorStatus,
+      'ts':   uptimeSeconds > 0 ? uptimeSeconds : timestamp.millisecondsSinceEpoch ~/ 1000,
+      'ax':   accelX,
+      'ay':   accelY,
+      'az':   accelZ,
     };
   }
 }

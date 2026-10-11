@@ -64,6 +64,7 @@ class _SensorDetailScreenState extends State<SensorDetailScreen> {
   SensorData _generateReading() {
     final hr = _rng.nextInt(51) + 60;
     return SensorData(
+      isWorn: true,
       heartRate: hr,
       ibi: (60000 ~/ hr) + _rng.nextInt(60) - 30,
       hrv: _rng.nextInt(35) + 8,
@@ -72,6 +73,8 @@ class _SensorDetailScreenState extends State<SensorDetailScreen> {
       stressIndex: _rng.nextInt(81) + 10,
       gsrPercent: _rng.nextInt(81) + 10,
       irRaw: _rng.nextInt(50000) + 100000,
+      sensorStatus: 0x1F,
+      uptimeSeconds: 120 + _rng.nextInt(3600),
       accelX: (_rng.nextDouble() - 0.5) * 0.4,
       accelY: (_rng.nextDouble() - 0.5) * 0.4,
       accelZ: 9.7 + _rng.nextDouble() * 0.2,
@@ -122,6 +125,12 @@ class _SensorDetailScreenState extends State<SensorDetailScreen> {
               sliver: SliverList(
                 delegate: SliverChildListDelegate([
                   _TimestampHUD(data: _current),
+                  const SizedBox(height: 12),
+
+                  // Status Pemakaian & Health Bitmask dari ESP32
+                  _WearStatusHUD(data: _current, cardBg: _cardBg),
+                  const SizedBox(height: 10),
+                  _SensorHealthHUD(data: _current, cardBg: _cardBg),
                   const SizedBox(height: 24),
 
                   const _SectionLabel(icon: Icons.monitor_heart_rounded, label: 'Jantung & Oksigen', color: Colors.pinkAccent),
@@ -131,8 +140,8 @@ class _SensorDetailScreenState extends State<SensorDetailScreen> {
                       Expanded(
                         child: _HUDCard(
                           label: 'Heart Rate',
-                          value: '${_current.heartRate}',
-                          unit: 'BPM',
+                          value: _current.heartRateDisplayText,
+                          unit: _current.isWorn && _current.heartRate > 0 ? 'BPM' : '',
                           color: Colors.pinkAccent,
                           icon: Icons.heart_broken_rounded,
                           cardBg: _cardBg,
@@ -142,8 +151,8 @@ class _SensorDetailScreenState extends State<SensorDetailScreen> {
                       Expanded(
                         child: _HUDCard(
                           label: 'Variabilitas (HRV)',
-                          value: '${_current.hrv}',
-                          unit: 'ms',
+                          value: _current.hrvDisplayText,
+                          unit: _current.hrv >= 0 ? 'ms' : '',
                           color: Colors.purpleAccent,
                           icon: Icons.timeline_rounded,
                           cardBg: _cardBg,
@@ -299,25 +308,40 @@ class _TimestampHUD extends StatelessWidget {
   Widget build(BuildContext context) {
     final ts = data.timestamp;
     final time = '${ts.hour.toString().padLeft(2, '0')}:${ts.minute.toString().padLeft(2, '0')}:${ts.second.toString().padLeft(2, '0')}';
+    final uptime = data.uptimeSeconds;
+    final uptimeStr = uptime > 0 ? '${uptime ~/ 60}m ${uptime % 60}s' : '0s';
+
     return Container(
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
       decoration: BoxDecoration(
         color: const Color(0xFF1E293B).withValues(alpha: 0.5),
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: Colors.white.withValues(alpha: 0.05)),
       ),
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          const Icon(Icons.terminal_rounded, size: 14, color: Color(0xFF64748B)), // Slate 500
-          const SizedBox(width: 10),
-          RichText(
-            text: TextSpan(
-              style: const TextStyle(fontFamily: 'monospace', fontSize: 13),
-              children: [
-                const TextSpan(text: 'ID_MT_01 > ', style: TextStyle(color: Color(0xFF6366F1))),
-                TextSpan(text: 'FETCH_TIME: $time', style: const TextStyle(color: Color(0xFFCBD5E1))), // Slate 300
-              ],
+          Row(
+            children: [
+              const Icon(Icons.terminal_rounded, size: 14, color: Color(0xFF64748B)),
+              const SizedBox(width: 8),
+              RichText(
+                text: TextSpan(
+                  style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
+                  children: [
+                    const TextSpan(text: 'ESP32 > ', style: TextStyle(color: Color(0xFF6366F1))),
+                    TextSpan(text: 'FETCH: $time', style: const TextStyle(color: Color(0xFFCBD5E1))),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          Text(
+            'UPTIME: $uptimeStr',
+            style: const TextStyle(
+              fontFamily: 'monospace',
+              fontSize: 11,
+              color: Color(0xFF94A3B8),
             ),
           ),
         ],
@@ -325,6 +349,187 @@ class _TimestampHUD extends StatelessWidget {
     );
   }
 }
+
+/// Status Pemakaian Alat (Wear Detection: IR > 50.000 / doc['worn'] == 1)
+class _WearStatusHUD extends StatelessWidget {
+  final SensorData data;
+  final Color cardBg;
+  const _WearStatusHUD({required this.data, required this.cardBg});
+
+  @override
+  Widget build(BuildContext context) {
+    final isWorn = data.isWorn;
+    final color = isWorn ? const Color(0xFF10B981) : const Color(0xFFEF4444);
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      decoration: BoxDecoration(
+        color: cardBg,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: color.withValues(alpha: 0.3)),
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: 0.15),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(
+              isWorn ? Icons.verified_user_rounded : Icons.warning_rounded,
+              size: 18,
+              color: color,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  isWorn ? 'Sensor Terpasang di Kulit' : 'Sensor Terlepas dari Kulit',
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.bold,
+                    color: color,
+                  ),
+                ),
+                Text(
+                  isWorn
+                      ? 'MAX30102 mendeteksi pulsa darah'
+                      : 'Alat dilepas — Parameter di-standby',
+                  style: const TextStyle(fontSize: 11, color: Color(0xFF94A3B8)),
+                ),
+              ],
+            ),
+          ),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.05),
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: Text(
+              'IR: ${data.irRaw}',
+              style: const TextStyle(
+                fontFamily: 'monospace',
+                fontSize: 10,
+                color: Color(0xFFCBD5E1),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Status Diagnostik Tiap Sensor Fisiologis (Decoding Bitmask `ss`)
+class _SensorHealthHUD extends StatelessWidget {
+  final SensorData data;
+  final Color cardBg;
+  const _SensorHealthHUD({required this.data, required this.cardBg});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: cardBg,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.05)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text(
+                'Status Sensor Hardware (ss bitmask)',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: Color(0xFF94A3B8),
+                ),
+              ),
+              Text(
+                '0b${data.sensorStatus.toRadixString(2).padLeft(5, '0')}',
+                style: const TextStyle(
+                  fontFamily: 'monospace',
+                  fontSize: 11,
+                  color: Color(0xFF6366F1),
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 6,
+            runSpacing: 6,
+            children: [
+              _buildSensorChip('MAX30102 (HR)', data.isHeartRateValid),
+              _buildSensorChip('HRV RMSSD', data.isHrvValid, pending: data.hrv < 0),
+              _buildSensorChip('GSR ADC', data.isGsrValid),
+              _buildSensorChip('MLX90614 (Suhu)', data.isTempValid),
+              _buildSensorChip('MPU6050 (IMU)', data.isMotionValid),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSensorChip(String name, bool isOk, {bool pending = false}) {
+    final Color chipColor;
+    final String label;
+
+    if (pending) {
+      chipColor = const Color(0xFF38BDF8); // Sky blue
+      label = '$name: Menghitung';
+    } else if (isOk) {
+      chipColor = const Color(0xFF10B981); // Emerald green
+      label = '$name: OK';
+    } else {
+      chipColor = const Color(0xFF94A3B8); // Slate 400
+      label = '$name: Standby';
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: chipColor.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: chipColor.withValues(alpha: 0.3)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 6,
+            height: 6,
+            decoration: BoxDecoration(
+              color: chipColor,
+              shape: BoxShape.circle,
+            ),
+          ),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 10,
+              fontWeight: FontWeight.w600,
+              color: chipColor,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 
 class _HUDCard extends StatelessWidget {
   final String label;

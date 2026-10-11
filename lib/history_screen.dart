@@ -73,7 +73,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
       case HistoryMetric.heartRate:
         return data.heartRate.toDouble();
       case HistoryMetric.hrv:
-        return data.hrv.toDouble();
+        return data.hrv < 0 ? 0.0 : data.hrv.toDouble();
       case HistoryMetric.activity:
         return data.motionScore.toDouble();
       case HistoryMetric.temperature:
@@ -737,7 +737,7 @@ class _ReadingTile extends StatelessWidget {
       case HistoryMetric.heartRate:
         return data.heartRate.toDouble();
       case HistoryMetric.hrv:
-        return data.hrv.toDouble();
+        return data.hrv < 0 ? 0.0 : data.hrv.toDouble();
       case HistoryMetric.activity:
         return data.motionScore.toDouble();
       case HistoryMetric.temperature:
