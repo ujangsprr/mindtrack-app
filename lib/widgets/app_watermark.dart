@@ -11,34 +11,20 @@ class AppWatermark extends StatelessWidget {
     final textColor = color ?? Colors.grey.shade400;
     
     return Container(
-      padding: const EdgeInsets.symmetric(vertical: 32),
+      padding: const EdgeInsets.symmetric(vertical: 24),
       width: double.infinity,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(Icons.monitor_heart_outlined, size: 14, color: textColor.withValues(alpha: 0.6)),
-              const SizedBox(width: 8),
-              Text(
-                'MindTrack Wearable Pro',
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.bold,
-                  letterSpacing: 0.5,
-                  color: textColor,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 4),
+          Icon(Icons.monitor_heart_outlined, size: 14, color: textColor.withValues(alpha: 0.5)),
+          const SizedBox(width: 8),
           Text(
-            'Powered by Pilar Labs • v1.2.0',
+            'MindTrack Pro • v1.2.0',
             style: TextStyle(
-              fontSize: 9,
-              letterSpacing: 1.0,
-              color: textColor.withValues(alpha: 0.5),
+              fontSize: 11,
+              fontWeight: FontWeight.w500,
+              letterSpacing: 0.5,
+              color: textColor.withValues(alpha: 0.6),
             ),
           ),
         ],
