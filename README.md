@@ -16,30 +16,51 @@
 
 ---
 
-## 📡 Protokol BLE ESP32 (V2)
+## 📡 Protokol Komunikasi BLE ESP32
 
-MindTrack Pro membaca data berformat **JSON** melalui paket *Notify*.
+MindTrack Pro membaca data biometrik berformat **JSON** melalui paket BLE *Notify* dengan interval transmisi 500 ms (2 Hz).
 
-### UUIDs
+### UUID GATT MindTrack
+- **Device Name:** `MindTrack_BLE`
 - **Service UUID:** `4fafc201-1fb5-459e-8fcc-c5c9c331914b`
-- **Characteristic UUID:** `beb5483e-36e1-4688-b7f5-ea07361b26a8`
+- **Data Characteristic:** `beb5483e-36e1-4688-b7f5-ea07361b26a8` *(READ + NOTIFY)* — Menerima streaming JSON biometrik.
+- **Command Characteristic:** `beb5483e-36e1-4688-b7f5-ea07361b26a9` *(WRITE)* — Mengirim perintah interaktif (contoh: `"ping"` yang dibalas `{"pong":1}`).
 
-### Format Data JSON (Payload)
-ESP32 harus mengirimkan string JSON sebagai berikut:
+### Format Data JSON (Stream Telemetri)
 ```json
 {
+  "worn": 1,
   "hr": 75,
   "ibi": 800,
   "hrv": 45,
-  "t": 36.5,
   "st": 42,
+  "t": 36.5,
   "g": 35,
-  "ir": 1200,
-  "ax": 0.1,
-  "ay": 0.2,
-  "az": 9.8
+  "ir": 120500,
+  "ss": 31,
+  "ts": 128,
+  "ax": 0.12,
+  "ay": -0.05,
+  "az": 9.81
 }
 ```
+
+| Field JSON | Tipe / Satuan | Keterangan & Penanganan di Aplikasi |
+| :--- | :--- | :--- |
+| `worn` | `int (0/1)` | Deteksi pemakaian pada pergelangan tangan. Jika `0`, UI menampilkan banner peringatan & standby status. |
+| `hr` | `int (BPM)` | Detak jantung per menit dari sensor PPG MAX30102. |
+| `ibi` | `int (ms)` | Inter-Beat Interval (durasi jeda antar detak fisiologis). |
+| `hrv` | `int (ms)` | RMSSD Heart Rate Variability. Nilai `-1` menandakan fase inisialisasi / kalibrasi. |
+| `st` | `int (0–100)` | Indeks Stres Fusi multi-sensor hasil kalkulasi algoritma Kalman & EMA di firmware. |
+| `t` | `double (°C)` | Suhu inframerah permukaan kulit tubuh dari MLX90614. |
+| `g` | `int (0–100%)` | Konduktansi kulit respon saraf simpatis (Galvanic Skin Response). |
+| `ir` | `int (raw)` | Intensitas refleksi inframerah MAX30102 untuk validasi kontak kulit. |
+| `ss` | `int (bitmask)` | **Sensor Health Bitmask:** bit0=HR, bit1=HRV, bit2=GSR, bit3=Temp, bit4=IMU (31 = semua optimal). |
+| `ts` | `int (detik)` | Uptime perangkat sejak menyala. |
+| `ax, ay, az` | `double (m/s²)` | Data akselerometer 3-sumbu MPU6050 pengukur intensitas gerak tubuh. |
+
+> ⌚ **Hardware Firmware:**
+> Source code firmware Arduino / ESP32-C3 tersedia di [mindtrack-wearable](https://github.com/ujangsprr/mindtrack-wearable.git).
 
 ---
 
