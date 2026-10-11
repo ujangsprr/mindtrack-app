@@ -112,11 +112,6 @@ lib/
 
 ---
 
-## 🏢 Developers & Credits
-
-Dikembangkan oleh **Pilar Labs**.
-
----
-
-## 📄 Lisensi
-MIT License — Solusi IoT untuk Digital Mental Health yang Presisi.
+## 📄 Lisensi & Kontributor
+Proyek ini dirilis di bawah lisensi MIT.  
+Dikembangkan oleh [Ujang](https://github.com/ujangsprr) sebagai solusi IoT untuk pemantauan kesehatan mental & biometrik.
