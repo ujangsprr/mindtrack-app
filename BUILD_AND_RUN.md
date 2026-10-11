@@ -25,9 +25,11 @@ flutter doctor -v
 
 ## 2. Inisialisasi Proyek
 
-1. Navigasikan terminal ke direktori root proyek:
+1. Buka terminal dan arahkan ke direktori root proyek:
    ```bash
-   cd "/Users/ujang/Jam Pintar/MindTrack/MindTrack"
+   cd path/ke/mindtrack-app
+   # Atau jika terminal sudah dibuka langsung di folder proyek:
+   cd .
    ```
 
 2. Unduh pustaka dependensi Dart:
