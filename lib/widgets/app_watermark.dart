@@ -34,10 +34,14 @@ class AppWatermark extends StatelessWidget {
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(
-                Icons.sensors_rounded,
-                size: 13,
-                color: baseColor.withValues(alpha: 0.6),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(3),
+                child: Image.asset(
+                  'assets/icon.png',
+                  width: 14,
+                  height: 14,
+                  fit: BoxFit.contain,
+                ),
               ),
               const SizedBox(width: 6),
               Text(

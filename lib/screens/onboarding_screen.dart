@@ -149,7 +149,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> with SingleTickerPr
             onPageChanged: (idx) => setState(() => _currentPage = idx),
             children: [
               _buildIntroPage(
-                icon: Icons.auto_awesome_rounded,
+                imageAsset: 'assets/icon.png',
                 title: "Kuasai Ketenangan\nMental Anda",
                 desc: "MindTrack membantu Anda mendeteksi lonjakan stres secara real-time untuk menjaga kesehatan sistem saraf Anda.",
               ),
@@ -224,20 +224,45 @@ class _OnboardingScreenState extends State<OnboardingScreen> with SingleTickerPr
     );
   }
 
-  Widget _buildIntroPage({required IconData icon, required String title, required String desc}) {
+  Widget _buildIntroPage({
+    IconData? icon,
+    String? imageAsset,
+    required String title,
+    required String desc,
+  }) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 32),
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Container(
-            padding: const EdgeInsets.all(32),
-            decoration: BoxDecoration(
-              color: _indigo.withValues(alpha: 0.08),
-              shape: BoxShape.circle,
+          if (imageAsset != null)
+            Container(
+              width: 110,
+              height: 110,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(28),
+                boxShadow: [
+                  BoxShadow(
+                    color: _indigo.withValues(alpha: 0.15),
+                    blurRadius: 24,
+                    offset: const Offset(0, 10),
+                  ),
+                ],
+              ),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(28),
+                child: Image.asset(imageAsset, fit: BoxFit.cover),
+              ),
+            )
+          else
+            Container(
+              padding: const EdgeInsets.all(32),
+              decoration: BoxDecoration(
+                color: _indigo.withValues(alpha: 0.08),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(icon, size: 80, color: _indigo),
             ),
-            child: Icon(icon, size: 80, color: _indigo),
-          ),
           const SizedBox(height: 48),
           Text(
             title,

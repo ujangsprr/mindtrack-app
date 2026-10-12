@@ -170,23 +170,52 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 pinned: true,
                 elevation: 0,
                 backgroundColor: const Color(0xFFF2F4F8),
-                title: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                title: Row(
                   children: [
-                    GestureDetector(
-                      onTap: _openProfileScreen,
-                      child: Text(
-                        'Hai, $_userName',
-                        style: theme.textTheme.titleLarge?.copyWith(
-                          fontWeight: FontWeight.bold,
-                          color: const Color(0xFF1A1A2E),
+                    Container(
+                      width: 40,
+                      height: 40,
+                      margin: const EdgeInsets.only(right: 12),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(10),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.04),
+                            blurRadius: 6,
+                            offset: const Offset(0, 2),
+                          ),
+                        ],
+                      ),
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(10),
+                        child: Image.asset(
+                          'assets/icon.png',
+                          fit: BoxFit.cover,
                         ),
                       ),
                     ),
-                    Text(
-                      'MindTrack – Pemantau Kesehatan & Stres',
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: Colors.grey.shade500,
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          GestureDetector(
+                            onTap: _openProfileScreen,
+                            child: Text(
+                              'Hai, $_userName',
+                              style: theme.textTheme.titleLarge?.copyWith(
+                                fontWeight: FontWeight.bold,
+                                color: const Color(0xFF1A1A2E),
+                              ),
+                            ),
+                          ),
+                          Text(
+                            'MindTrack – Pemantau Stres',
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: Colors.grey.shade500,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                   ],
