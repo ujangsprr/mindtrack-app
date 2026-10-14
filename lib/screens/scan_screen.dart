@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
+import 'package:permission_handler/permission_handler.dart';
 import '../services/ble_service.dart';
 import '../services/storage_service.dart';
 import '../widgets/app_watermark.dart';
@@ -43,21 +44,64 @@ class _ScanScreenState extends State<ScanScreen> {
 
   Future<void> _startScan() async {
     HapticFeedback.mediumImpact();
-    await _ble.startScan(timeout: const Duration(seconds: 12));
+    final status = await _ble.startScan(timeout: const Duration(seconds: 12));
+
+    if (!mounted) return;
+
+    if (status == BleScanStatus.bluetoothOff) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text('Bluetooth belum aktif. Harap nyalakan Bluetooth di HP Anda.'),
+          backgroundColor: const Color(0xFFF59E0B),
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          action: SnackBarAction(
+            label: 'Coba Lagi',
+            textColor: Colors.white,
+            onPressed: _startScan,
+          ),
+        ),
+      );
+    } else if (status == BleScanStatus.permissionDenied) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text('Izin Bluetooth/Lokasi belum diberikan untuk mendeteksi perangkat.'),
+          backgroundColor: const Color(0xFFEF4444),
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          action: SnackBarAction(
+            label: 'Pengaturan',
+            textColor: Colors.white,
+            onPressed: () => openAppSettings(),
+          ),
+        ),
+      );
+    } else if (status == BleScanStatus.notSupported) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text('Perangkat HP ini tidak mendukung Bluetooth Low Energy (BLE).'),
+          backgroundColor: const Color(0xFFEF4444),
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        ),
+      );
+    }
   }
 
   Future<void> _connect(ScanResult result) async {
     HapticFeedback.selectionClick();
+    final deviceName = BleService.getDeviceName(result);
+
     setState(() {
       _connecting = true;
       _connectingId = result.device.remoteId.str;
     });
 
-    final success = await _ble.connectToDevice(result.device);
+    final success = await _ble.connectToDevice(result.device, customName: deviceName);
 
     if (success) {
       await _storage.saveLastDevice(
-        result.device.platformName,
+        deviceName,
         result.device.remoteId.str,
       );
 
@@ -65,7 +109,7 @@ class _ScanScreenState extends State<ScanScreen> {
         HapticFeedback.heavyImpact();
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Terhubung ke ${result.device.platformName}'),
+            content: Text('Terhubung ke $deviceName'),
             backgroundColor: const Color(0xFF10B981),
             behavior: SnackBarBehavior.floating,
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -267,6 +311,10 @@ class _ScanScreenState extends State<ScanScreen> {
     final device = result.device;
     final rssi = result.rssi;
     final isConnecting = _connectingId == device.remoteId.str;
+    final deviceName = BleService.getDeviceName(result);
+    final isMindTrack = deviceName.toLowerCase().contains('mindtrack') ||
+        result.advertisementData.serviceUuids.any(
+            (u) => u.toString().toLowerCase() == BleService.serviceUuid.toLowerCase());
 
     IconData signalIcon;
     Color signalColor;
@@ -286,9 +334,20 @@ class _ScanScreenState extends State<ScanScreen> {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: Colors.grey.shade100),
+        border: Border.all(
+          color: isMindTrack
+              ? const Color(0xFF5C55ED).withValues(alpha: 0.3)
+              : Colors.grey.shade100,
+          width: isMindTrack ? 1.5 : 1,
+        ),
         boxShadow: [
-          BoxShadow(color: Colors.black.withValues(alpha: 0.03), blurRadius: 10, offset: const Offset(0, 4)),
+          BoxShadow(
+            color: isMindTrack
+                ? const Color(0xFF5C55ED).withValues(alpha: 0.08)
+                : Colors.black.withValues(alpha: 0.03),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
         ],
       ),
       child: ListTile(
@@ -296,14 +355,43 @@ class _ScanScreenState extends State<ScanScreen> {
         leading: Container(
           padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(
-            color: _primaryColor.withValues(alpha: 0.08),
+            color: (isMindTrack ? const Color(0xFF10B981) : _primaryColor)
+                .withValues(alpha: 0.08),
             borderRadius: BorderRadius.circular(14),
           ),
-          child: Icon(Icons.watch_rounded, color: _primaryColor),
+          child: Icon(
+            Icons.watch_rounded,
+            color: isMindTrack ? const Color(0xFF10B981) : _primaryColor,
+          ),
         ),
-        title: Text(
-          device.platformName.isNotEmpty ? device.platformName : 'MindTrack Wearable',
-          style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
+        title: Row(
+          children: [
+            Expanded(
+              child: Text(
+                deviceName,
+                style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            if (isMindTrack)
+              Container(
+                margin: const EdgeInsets.only(left: 6),
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF10B981).withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: const Text(
+                  'MindTrack',
+                  style: TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFF10B981),
+                  ),
+                ),
+              ),
+          ],
         ),
         subtitle: Row(
           children: [
@@ -315,7 +403,7 @@ class _ScanScreenState extends State<ScanScreen> {
             ),
             const SizedBox(width: 8),
             Text(
-              device.remoteId.str.substring(0, 12),
+              device.remoteId.str.length > 12 ? device.remoteId.str.substring(0, 12) : device.remoteId.str,
               style: TextStyle(fontSize: 10, color: Colors.grey.shade400),
             ),
           ],

@@ -1,7 +1,9 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
+import 'package:permission_handler/permission_handler.dart';
 import '../models/sensor_data.dart';
 
 /// BLE (Bluetooth Low Energy) service for MindTrack.
@@ -43,7 +45,12 @@ class BleService extends ChangeNotifier {
 
   bool get isConnected => _connectedDevice != null;
 
-  String? get connectedDeviceName => _connectedDevice?.platformName;
+  String? _customConnectedName;
+  String? get connectedDeviceName =>
+      _customConnectedName ??
+      (_connectedDevice?.platformName.isNotEmpty == true
+          ? _connectedDevice!.platformName
+          : 'MindTrack Wearable');
   String? get connectedDeviceId => _connectedDevice?.remoteId.str;
 
   // ── Data streams ───────────────────────────────────────────────────────
@@ -74,13 +81,82 @@ class BleService extends ChangeNotifier {
   String _jsonBuffer = '';
 
   // ═══════════════════════════════════════════════════════════════════════
+  // PERMISSIONS & ADAPTER CHECK
+  // ═══════════════════════════════════════════════════════════════════════
+
+  /// Request needed Bluetooth and Location permissions (especially for Android 12+)
+  Future<bool> requestPermissions() async {
+    if (!Platform.isAndroid) return true;
+
+    try {
+      final statuses = await [
+        Permission.bluetoothScan,
+        Permission.bluetoothConnect,
+        Permission.location,
+      ].request();
+
+      final scanGranted = statuses[Permission.bluetoothScan]?.isGranted ?? true;
+      final connectGranted = statuses[Permission.bluetoothConnect]?.isGranted ?? true;
+      final locGranted = statuses[Permission.location]?.isGranted ?? true;
+
+      return (scanGranted && connectGranted) || locGranted;
+    } catch (e) {
+      debugPrint('[BLE] Permission request error: $e');
+      return false;
+    }
+  }
+
+  /// Get friendly display name for a scanned device
+  static String getDeviceName(ScanResult result) {
+    if (result.advertisementData.advName.isNotEmpty) {
+      return result.advertisementData.advName;
+    }
+    if (result.device.platformName.isNotEmpty) {
+      return result.device.platformName;
+    }
+    return 'MindTrack Device (${result.device.remoteId.str.substring(0, 5)})';
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
   // SCANNING
   // ═══════════════════════════════════════════════════════════════════════
 
   /// Start scanning for BLE devices.
-  /// Results are filtered to show devices with a name (ignore unnamed).
-  Future<void> startScan({Duration timeout = const Duration(seconds: 10)}) async {
-    if (_isScanning) return;
+  /// Automatically requests permissions and checks Bluetooth adapter status.
+  Future<BleScanStatus> startScan({Duration timeout = const Duration(seconds: 10)}) async {
+    if (_isScanning) return BleScanStatus.alreadyScanning;
+
+    // 1. Check if Bluetooth is supported
+    if (await FlutterBluePlus.isSupported == false) {
+      debugPrint('[BLE] Bluetooth not supported by this device.');
+      return BleScanStatus.notSupported;
+    }
+
+    // 2. Request permissions on Android
+    final granted = await requestPermissions();
+    if (!granted) {
+      debugPrint('[BLE] Bluetooth / Location permissions not granted.');
+      return BleScanStatus.permissionDenied;
+    }
+
+    // 3. Check if Bluetooth is turned on
+    var adapterState = await FlutterBluePlus.adapterState.first;
+    if (adapterState != BluetoothAdapterState.on) {
+      // Try to turn on Bluetooth automatically on Android
+      if (Platform.isAndroid) {
+        try {
+          await FlutterBluePlus.turnOn();
+          // Short wait to see if adapter turns on
+          await Future.delayed(const Duration(milliseconds: 1000));
+          adapterState = await FlutterBluePlus.adapterState.first;
+        } catch (_) {}
+      }
+
+      if (adapterState != BluetoothAdapterState.on) {
+        debugPrint('[BLE] Bluetooth is OFF.');
+        return BleScanStatus.bluetoothOff;
+      }
+    }
 
     _scanResults.clear();
     _isScanning = true;
@@ -91,21 +167,45 @@ class BleService extends ChangeNotifier {
       _scanSub = FlutterBluePlus.onScanResults.listen((results) {
         _scanResults.clear();
         for (final r in results) {
-          // Only show devices that advertise a name
-          if (r.device.platformName.isNotEmpty) {
+          final advName = r.advertisementData.advName;
+          final platName = r.device.platformName;
+          final name = advName.isNotEmpty ? advName : platName;
+
+          final matchesUuid = r.advertisementData.serviceUuids
+              .any((u) => u.toString().toLowerCase() == serviceUuid.toLowerCase());
+          final matchesName = name.toLowerCase().contains('mindtrack');
+
+          // Include device if it has a name, matches service UUID, or is MindTrack
+          if (name.isNotEmpty || matchesUuid || matchesName) {
             _scanResults.add(r);
           }
         }
+
+        // Sort MindTrack devices first, then by signal strength (RSSI)
+        _scanResults.sort((a, b) {
+          final aName = getDeviceName(a).toLowerCase();
+          final bName = getDeviceName(b).toLowerCase();
+          final aIsMT = aName.contains('mindtrack');
+          final bIsMT = bName.contains('mindtrack');
+
+          if (aIsMT && !bIsMT) return -1;
+          if (!aIsMT && bIsMT) return 1;
+          return b.rssi.compareTo(a.rssi);
+        });
+
         notifyListeners();
       });
 
-      // Start the scan with timeout
+      // Start scan
       await FlutterBluePlus.startScan(
         timeout: timeout,
-        androidUsesFineLocation: true,
+        androidUsesFineLocation: false,
       );
+
+      return BleScanStatus.success;
     } catch (e) {
       debugPrint('[BLE] Scan error: $e');
+      return BleScanStatus.error;
     } finally {
       _isScanning = false;
       notifyListeners();
@@ -114,7 +214,9 @@ class BleService extends ChangeNotifier {
 
   /// Stop an on-going scan immediately.
   Future<void> stopScan() async {
-    await FlutterBluePlus.stopScan();
+    try {
+      await FlutterBluePlus.stopScan();
+    } catch (_) {}
     _scanSub?.cancel();
     _isScanning = false;
     notifyListeners();
@@ -126,12 +228,24 @@ class BleService extends ChangeNotifier {
 
   /// Connect to a BLE device, discover services, and subscribe to the
   /// MindTrack data characteristic (Notify).
-  Future<bool> connectToDevice(BluetoothDevice device) async {
+  Future<bool> connectToDevice(BluetoothDevice device, {String? customName}) async {
     try {
-      debugPrint('[BLE] Connecting to ${device.platformName}...');
+      _customConnectedName = customName;
+      debugPrint('[BLE] Connecting to ${device.platformName} (${device.remoteId})...');
 
-      // Connect with auto-reconnect disabled so we can manage it ourselves
-      await device.connect(license: License.free, autoConnect: false, timeout: const Duration(seconds: 10));
+      // Connect
+      await device.connect(
+        license: License.free,
+        autoConnect: false,
+        timeout: const Duration(seconds: 15),
+      );
+
+      // Request MTU 247 on Android for non-fragmented JSON transfer
+      if (Platform.isAndroid) {
+        try {
+          await device.requestMtu(247);
+        } catch (_) {}
+      }
 
       // Wait a moment for GATT to stabilize
       await Future.delayed(const Duration(milliseconds: 500));
@@ -321,3 +435,14 @@ class BleService extends ChangeNotifier {
     super.dispose();
   }
 }
+
+/// Status result when starting BLE scan
+enum BleScanStatus {
+  success,
+  alreadyScanning,
+  bluetoothOff,
+  permissionDenied,
+  notSupported,
+  error,
+}
+
